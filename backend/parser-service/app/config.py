@@ -3,8 +3,8 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     groq_api_key: str
-    supabase_url: str
-    supabase_key: str
+    supabase_url: str | None = None
+    supabase_key: str | None = None
     groq_model: str = "llama-3.1-8b-instant"
     max_file_size_mb: int = 10
     parser_timeout_seconds: int = 30

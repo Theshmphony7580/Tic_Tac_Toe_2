@@ -1,10 +1,10 @@
 import time
 import logging
-import httpx
-from fastapi import APIRouter, HTTPException
+from uuid import UUID
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 import groq
 
-from app.schemas import ParseRequest, ParseResponse
+from app.schemas import ParseResponse
 from app.config import get_settings
 from app.parsers.pdf_parser import parse_pdf
 from app.parsers.docx_parser import parse_docx
@@ -16,36 +16,32 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 @router.post("/parse", response_model=ParseResponse)
-async def parse_resume(request: ParseRequest) -> ParseResponse:
+async def parse_resume(
+    file: UploadFile = File(...),
+    candidate_id: UUID | None = Form(None)
+) -> ParseResponse:
     start_time = time.time()
     
     try:
-        # Step A: Download the file
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(request.file_url, timeout=15.0)
-                if response.status_code != 200:
-                    raise HTTPException(status_code=404, detail="File not found at URL")
-                file_bytes = response.content
-            except httpx.RequestError as e:
-                raise HTTPException(status_code=400, detail=f"Failed to fetch file: {str(e)}")
+        # Step A: Read the file instantly from the multipart payload
+        file_bytes = await file.read()
 
         # Check file size
         max_bytes = settings.max_file_size_mb * 1024 * 1024
         if len(file_bytes) > max_bytes:
             raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_file_size_mb}MB limit")
 
-        # Step B: Convert file to text
+        # Step B: Convert file to text based on filename extension
+        filename = file.filename.lower() if file.filename else ""
         try:
-            match request.file_type:
-                case "pdf":
-                    raw_text = parse_pdf(file_bytes)
-                case "docx":
-                    raw_text = parse_docx(file_bytes)
-                case "txt":
-                    raw_text = parse_txt(file_bytes)
-                case _:
-                    raise HTTPException(status_code=422, detail="Unsupported file type")
+            if filename.endswith(".pdf"):
+                raw_text = parse_pdf(file_bytes)
+            elif filename.endswith(".docx"):
+                raw_text = parse_docx(file_bytes)
+            elif filename.endswith(".txt"):
+                raw_text = parse_txt(file_bytes)
+            else:
+                raise HTTPException(status_code=422, detail="Unsupported file extension. Use .pdf, .docx, or .txt")
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
@@ -64,7 +60,7 @@ async def parse_resume(request: ParseRequest) -> ParseResponse:
         
         return ParseResponse(
             success=True,
-            candidate_id=request.candidate_id,
+            candidate_id=candidate_id,
             data=parsed,
             processing_time_ms=processing_time_ms
         )
@@ -72,8 +68,10 @@ async def parse_resume(request: ParseRequest) -> ParseResponse:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unhandled error in parse_resume: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Unhandled error in parse_resume:\n{tb}")
+        raise HTTPException(status_code=500, detail=f"Error: {type(e).__name__}: {str(e)}")
 
 @router.get("/health")
 def health_check():
