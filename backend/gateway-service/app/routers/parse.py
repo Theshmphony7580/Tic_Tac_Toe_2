@@ -30,11 +30,12 @@ async def parse_resume(file: UploadFile = File(...)):
 
         #  Send file path
         async with httpx.AsyncClient() as client:
+            file_type = file.filename.split(".")[-1]
             response = await client.post(
                 ORCHESTRATOR_URL,
                 json={
                     "file_url": file_path,
-                    "file_type": "pdf"
+                    "file_type": file_type
                 }
             )
 
