@@ -61,7 +61,7 @@ export default function SignInPage() {
                     `/verify-pending?email=${encodeURIComponent(formData.email)}`
                 );
             } else {
-                router.push("/dashboard");
+                router.push("/analyser");
             }
         } catch (err) {
             setGlobalError(
