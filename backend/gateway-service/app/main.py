@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from app.middleware.auth import APIKeyMiddleware
 
 # Routers (we'll create these next)
-from routers import parse, match, candidates, skills
+from app.routers import parse, match, candidates, skills
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -20,6 +21,9 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan
 )
+
+# Register middleware
+app.add_middleware(APIKeyMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
