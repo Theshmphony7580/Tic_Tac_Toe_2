@@ -1,25 +1,20 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-import os
+load_dotenv()
 
-# You can move this later to config.py
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://admin:password@localhost:5432/talentintel"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Create engine
 engine = create_engine(DATABASE_URL)
 
-# Session factory
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
 
-# Dependency (used in routes if needed)
 def get_db():
     db = SessionLocal()
     try:
