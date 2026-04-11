@@ -1,12 +1,12 @@
-from sqlalchemy import text  # ADD THIS
+from sqlalchemy.orm import Session
+from app.db import get_db
+import hashlib
 
-def validate_api_key(api_key: str, db):
-    import hashlib
-
+def validate_api_key(api_key: str, db: Session):
     hashed = hashlib.sha256(api_key.encode()).hexdigest()
 
     result = db.execute(
-        text("SELECT * FROM api_keys WHERE key_hash = :key AND is_active = true"),
+        "SELECT * FROM api_keys WHERE key_hash = :key AND is_active = true",
         {"key": hashed}
     ).fetchone()
 
