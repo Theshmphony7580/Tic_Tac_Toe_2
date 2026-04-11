@@ -17,15 +17,6 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
                         className="rounded-2xl object-cover"
                         priority
                     />
-                    <div className="text-center space-y-2">
-                        <h2 className="text-2xl font-bold tracking-tight">
-                            SEO SaaS Platform
-                        </h2>
-                        <p className="text-muted-foreground text-sm leading-relaxed">
-                            Analyse, audit, and optimise your website&apos;s search performance
-                            with AI-powered insights.
-                        </p>
-                    </div>
                 </div>
             </div>
 
