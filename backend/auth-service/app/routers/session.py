@@ -39,6 +39,7 @@ async def refresh(request: Request, response: Response, refresh_token: str | Non
                 await pool.execute("DELETE FROM refresh_tokens WHERE id = $1", stored["id"])
             response.delete_cookie("refresh_token", path="/auth/refresh")
             response.delete_cookie("access_token", path="/")
+            response.delete_cookie("has_session", path="/")
             response.status_code = 401
             return {"error": "Session expired, please log in again"}
 
@@ -80,6 +81,7 @@ async def logout(
 
         response.delete_cookie("refresh_token", path="/auth/refresh")
         response.delete_cookie("access_token", path="/")
+        response.delete_cookie("has_session", path="/")
         return {"status": "logged_out"}
 
     except Exception as e:

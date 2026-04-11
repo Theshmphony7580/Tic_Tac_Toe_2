@@ -1,6 +1,6 @@
 import resend
 
-from app.config import RESEND_API_KEY, EMAIL_FROM, FRONTEND_URL
+from app.config import RESEND_API_KEY, EMAIL_FROM, APP_URL
 
 
 resend.api_key = RESEND_API_KEY
@@ -8,7 +8,7 @@ resend.api_key = RESEND_API_KEY
 
 async def send_verification_email(email: str, token: str) -> None:
     """Send a verification email via Resend."""
-    verification_url = f"{FRONTEND_URL}/verify-email?token={token}"
+    verification_url = f"{APP_URL}/auth/verify-email?token={token}"
 
     try:
         resend.Emails.send({

@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# .env lives at backend/.env — two levels up from this file
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(_env_path)
 
 DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 JWT_SECRET: str = os.getenv("JWT_SECRET", "")

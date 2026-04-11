@@ -56,8 +56,61 @@ def extract_from_text(raw_text: str) -> ParsedCandidate:
         logger.warning(f"Resume text truncated from {len(raw_text)} to {max_chars} chars")
         raw_text = raw_text[:max_chars]
 
+    json_template = """
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "phone": "555-1234",
+  "location": "New York, NY",
+  "linkedin_url": null,
+  "portfolio_url": null,
+  "summary": "Experienced engineer...",
+  "total_experience_years": 5.5,
+  "work_experience": [
+    {
+      "company": "Tech Corp",
+      "title": "Software Engineer",
+      "start_date": "Jan 2020",
+      "end_date": "Present",
+      "duration_months": 36,
+      "description": "Built scalable APIs...",
+      "technologies": ["Python", "AWS", "Docker"],
+      "is_current": true
+    }
+  ],
+  "education": [
+    {
+      "institution": "University X",
+      "degree": "B.Sc. Computer Science",
+      "field": "Computer Science",
+      "graduation_year": "2019",
+      "gpa": "3.8"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "AWS Solutions Architect",
+      "issuer": "Amazon",
+      "year": "2021"
+    }
+  ],
+  "projects": [
+    {
+      "name": "Personal Website",
+      "description": "Portfolio site",
+      "technologies": ["React", "CSS"],
+      "url": "https://jane.dev",
+      "duration": null
+    }
+  ],
+  "raw_skills": ["Python", "AWS", "Docker", "React", "CSS", "Machine Learning"],
+  "languages": ["English", "Spanish"],
+  "confidence_score": 0.95,
+  "warnings": []
+}"""
+
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": f"{SYSTEM_PROMPT}\n\nEXPECTED JSON FORMAT (Match this structure exactly):\n{json_template}"},
         {"role": "user", "content": f"Parse this resume:\n\n{raw_text}"}
     ]
 
