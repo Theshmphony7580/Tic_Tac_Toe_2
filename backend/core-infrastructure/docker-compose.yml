@@ -1,9 +1,7 @@
-version: "3.9"
-
 services:
   # --- Data Layer ---
   postgres:
-    image: pgvector/pgvector:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: talentintel
       POSTGRES_USER: admin
@@ -15,7 +13,7 @@ services:
       - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
       - ./database/seed_taxonomy.sql:/docker-entrypoint-initdb.d/02-seed.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin"]
+      test: ["CMD-SHELL", "pg_isready -U admin -d talentintel"]
       interval: 5s
       retries: 5
 
