@@ -62,6 +62,17 @@ async def create_session(user_id: str, response: Response, request: Request) -> 
         max_age=30 * 24 * 60 * 60,  # 30 days
     )
 
+    # Client-visible session indicator (non-httpOnly so Next.js middleware can read it)
+    response.set_cookie(
+        key="has_session",
+        value="1",
+        httponly=False,
+        secure=is_prod,
+        samesite="lax",
+        path="/",
+        max_age=30 * 24 * 60 * 60,  # 30 days
+    )
+
     return access_token
 
 
