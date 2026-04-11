@@ -43,3 +43,4 @@ next-env.d.ts
 # backend python
 .venv/
 __pycache__/
+resumes/

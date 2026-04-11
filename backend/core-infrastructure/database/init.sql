@@ -112,3 +112,51 @@ CREATE TABLE emerging_skills (
     added_to_taxonomy BOOLEAN DEFAULT FALSE,
     canonical_mapping VARCHAR(255)               -- Set after human review
 );
+
+-- ═══════════════════════════════════════════════════════════════════
+-- AUTH TABLES
+-- ═══════════════════════════════════════════════════════════════════
+
+-- Users
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255),
+    password_hash VARCHAR(255),
+    avatar_url VARCHAR(500),
+    provider VARCHAR(20) DEFAULT 'email',
+    is_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+
+-- OAuth Accounts (Google, etc.)
+CREATE TABLE oauth_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(20) NOT NULL,
+    provider_account_id VARCHAR(255) NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at TIMESTAMPTZ,
+    UNIQUE (provider, provider_account_id)
+);
+
+CREATE INDEX idx_oauth_accounts_user ON oauth_accounts(user_id);
+
+-- Refresh Tokens (session management)
+CREATE TABLE refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL UNIQUE,
+    device_name VARCHAR(255),
+    ip_address VARCHAR(45),
+    last_used_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens(expires_at);
