@@ -13,14 +13,9 @@ BASE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../")
 )
 UPLOAD_DIR = os.path.join(BASE_DIR, "data", "resumes")
-# Create folder if not exists
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL")
-
-# create folder if not exists
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/parse")
 async def parse_resume(file: UploadFile = File(...)):
