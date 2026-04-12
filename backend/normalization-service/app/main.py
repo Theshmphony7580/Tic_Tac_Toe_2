@@ -16,18 +16,18 @@ async def lifespan(app: FastAPI):
     logger.info("Normalization Service starting up...")
     
     # Pre-warm Redis and Cache taxonomy
-    await init_redis()
-    try:
-        await get_taxonomy()
-        logger.info("Successfully primed the Redis taxonomy cache.")
-    except Exception as e:
-        logger.error(f"Failed to pre-warm taxonomy cache: {e}")
+    # await init_redis()
+    # try:
+    #     await get_taxonomy()
+    #     logger.info("Successfully primed the Redis taxonomy cache.")
+    # except Exception as e:
+    #     logger.error(f"Failed to pre-warm taxonomy cache: {e}")
         
     yield
     
     # Shutdown
     logger.info("Normalization Service shutting down...")
-    await close_redis()
+    # await close_redis()
 
 app = FastAPI(
     title="TalentIntel Normalization Service",
