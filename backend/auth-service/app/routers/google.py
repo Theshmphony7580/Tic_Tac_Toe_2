@@ -121,9 +121,15 @@ async def google_callback(request: Request, response: Response, code: str | None
             tokens.get("refresh_token"),
         )
 
-        # Create session (cookies handle everything)
-        await create_session(str(user["id"]), response, request)
-        return RedirectResponse(f"{FRONTEND_URL}/dashboard")
+        # Create session — we must set cookies on the REDIRECT response itself
+        # (FastAPI's `response` param is ignored when returning RedirectResponse)
+        access_token = await create_session(str(user["id"]), response, request)
+
+        redirect = RedirectResponse(f"{FRONTEND_URL}/analyser?token={access_token}")
+        # Copy all Set-Cookie headers from the response object to the redirect
+        for header_value in response.headers.getlist("set-cookie"):
+            redirect.headers.append("set-cookie", header_value)
+        return redirect
 
     except Exception as e:
         print(f"[google-callback] {e}")

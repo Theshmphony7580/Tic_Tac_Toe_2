@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // Routes that require authentication
-const protectedRoutes = ["/dashboard", "/deep-analysis", "/keywords-tracking"];
+const protectedRoutes = ["/dashboard", "/analyser", "/deep-analysis", "/keywords-tracking"];
 
 // Routes only for unauthenticated users
 const authRoutes = ["/", "/signIn", "/signUp"];
@@ -36,7 +36,7 @@ export function middleware(request: NextRequest) {
 
     // Authenticated user trying to access auth pages → redirect to dashboard
     if (isAuthRoute(pathname) && hasSession) {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        return NextResponse.redirect(new URL("/analyser", request.url));
     }
 
     return NextResponse.next();

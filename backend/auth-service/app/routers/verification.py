@@ -38,7 +38,10 @@ async def verify_email(request: Request, response: Response, token: str | None =
         await pool.execute("UPDATE users SET is_verified = TRUE WHERE id = $1", payload["sub"])
 
         access_token = await create_session(str(user["id"]), response, request)
-        return RedirectResponse(f"{FRONTEND_URL}/dashboard?token={access_token}")
+        redirect = RedirectResponse(f"{FRONTEND_URL}/analyser?token={access_token}")
+        for header_value in response.headers.getlist("set-cookie"):
+            redirect.headers.append("set-cookie", header_value)
+        return redirect
 
     except Exception as e:
         print(f"[verify-email] {e}")
