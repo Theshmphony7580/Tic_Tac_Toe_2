@@ -15,7 +15,7 @@ import { Button } from "@/app/components/ui/button";
 import { Loader2 } from "lucide-react";
 
 export default function SignUpPage() {
-    const { signup } = useAuth();
+    const { signup, setAccessToken, setUser } = useAuth();
     const router = useRouter();
 
     const [formData, setFormData] = useState<SignUpFormData>({
@@ -151,6 +151,28 @@ export default function SignUpPage() {
                     Sign in
                 </Link>
             </p>
+
+            <div className="mt-4 flex justify-center">
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.preventDefault();
+                        document.cookie = "has_session=1; path=/; max-age=2592000; SameSite=Lax";
+                        localStorage.setItem("dummy_session", "1");
+                        setAccessToken("dummy_token");
+                        setUser({
+                            id: "dummy_id",
+                            email: "dummy@example.com",
+                            name: "Dummy User",
+                            avatar_url: null,
+                        });
+                        router.push("/analyser");
+                    }}
+                    className="text-xs text-muted-foreground hover:text-primary underline"
+                >
+                    [Dev] Dummy Sign-In Bypass
+                </button>
+            </div>
         </AuthFormWrapper>
     );
 }

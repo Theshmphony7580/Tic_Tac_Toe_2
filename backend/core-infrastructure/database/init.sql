@@ -174,3 +174,44 @@ CREATE TABLE refresh_tokens (
 CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens(expires_at);
+
+-- Candidate Applications
+-- Tracks a candidate's application to a specific role,
+-- decoupled from the candidate's parsed resume data.
+CREATE TABLE candidate_applications (
+    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    candidate_id  UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+
+    -- Role-specific info
+    role          VARCHAR(100) NOT NULL,
+
+    -- Computed match score (0–100)
+    skills_match_pct  SMALLINT CHECK (skills_match_pct BETWEEN 0 AND 100),
+    suitable          BOOLEAN DEFAULT FALSE,
+
+    -- "4 Years" stored as an integer for sorting/filtering
+    -- Display formatting (e.g. "4 Years") is handled at the app layer
+    experience_years  SMALLINT,
+
+    -- Where the candidate came from: 'LinkedIn', 'Referral', 'Naukri', etc.
+    source        VARCHAR(50),
+
+    applied_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+
+    -- Lifecycle: new | reviewing | shortlisted | rejected | hired
+    status        VARCHAR(20) NOT NULL DEFAULT 'new',
+
+    -- Resume file
+    resume_file_url   VARCHAR(1000),
+    resume_file_type  VARCHAR(10) CHECK (resume_file_type IN ('pdf', 'docx', 'txt')),
+
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_applications_candidate   ON candidate_applications(candidate_id);
+CREATE INDEX idx_applications_status      ON candidate_applications(status);
+CREATE INDEX idx_applications_role        ON candidate_applications(role);
+CREATE INDEX idx_applications_applied     ON candidate_applications(applied_date DESC);
+CREATE INDEX idx_applications_skills_match ON candidate_applications(skills_match_pct DESC);
