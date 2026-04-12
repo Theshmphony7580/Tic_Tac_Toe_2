@@ -24,10 +24,19 @@ class ResumeProcessingState(TypedDict):
     normalization_error: Optional[str]  # Error message if normalization failed; None on success
     normalize_retries: int              # How many normalization attempts have been made
 
+    job_description: Optional[str]      # Optional job description for Matcher Service
+    required_skills: Optional[list[str]]  # Optional required skills for matching
+    nice_to_have_skills: Optional[list[str]]  # Optional nice-to-have skills for matching
+    threshold: Optional[float]          # Optional matching threshold
+    top_k: Optional[int]                # Optional top-K matches to request
+
     # ── AFTER STORE NODE ───────────────────────────────────────────────────
     candidate_id: Optional[str]   # UUID of the inserted candidates table row
     embedding_stored: bool         # True if embedding vector was saved successfully
     store_error: Optional[str]     # Error message if DB store failed; None on success
+    match_result: Optional[dict]    # Optional matcher response payload
+    match_error: Optional[str]      # Optional matcher error message
+    match_processing_time_ms: Optional[int]  # Optional matcher latency
 
     # ── PIPELINE METADATA ──────────────────────────────────────────────────
     status: str             # queued | parsing | normalizing | storing | complete | failed

@@ -208,7 +208,7 @@ async def store_in_db(state: ResumeProcessingState) -> dict:
         # Get the parsed candidate data sub-dict
         parsed_data: dict = (state.get("parsed_resume") or {}).get("data") or {}
 
-        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url)
+        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url, ssl="require")
         try:
             candidate_id = await insert_candidate(
                 conn=conn,
@@ -249,7 +249,69 @@ async def store_in_db(state: ResumeProcessingState) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NODE D: handle_error
+# NODE D: call_matcher
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def call_matcher(state: ResumeProcessingState) -> dict:
+    """
+    Sends the job description to the Matching Service and stores the result.
+    """
+    settings = get_settings()
+    job_id = state["job_id"]
+
+    if not state.get("job_description"):
+        return {
+            "match_result": None,
+            "match_error": None,
+            "match_processing_time_ms": None,
+            "status": "complete",
+        }
+
+    logger.info(f"[{job_id}] Calling Matching Service (Agent 3)...")
+    payload = {
+        "job_description": state["job_description"],
+        "required_skills": state.get("required_skills") or [],
+        "nice_to_have_skills": state.get("nice_to_have_skills") or [],
+        "threshold": state.get("threshold") if state.get("threshold") is not None else 0.55,
+        "top_k": state.get("top_k") or 10,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.matching_timeout_seconds) as client:
+            response = await client.post(
+                f"{settings.matching_url}/internal/match",
+                json=payload,
+            )
+
+        if response.status_code != 200:
+            raise ValueError(
+                f"Matcher returned HTTP {response.status_code}: {response.text[:300]}"
+            )
+
+        data = response.json()
+        logger.info(
+            f"[{job_id}] Matcher completed in {data.get('processing_time_ms')}ms "
+            f"with {len(data.get('results', []))} results."
+        )
+
+        return {
+            "match_result": data,
+            "match_error": None,
+            "match_processing_time_ms": data.get("processing_time_ms"),
+            "status": "complete",
+        }
+    except Exception as exc:
+        logger.error(f"[{job_id}] Matching Service failed: {exc}")
+        return {
+            "match_result": None,
+            "match_error": str(exc),
+            "match_processing_time_ms": None,
+            "status": "complete",
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EDGE ROUTERS (pure functions — no async, no side effects)
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def handle_error(state: ResumeProcessingState) -> dict:
@@ -270,7 +332,7 @@ async def handle_error(state: ResumeProcessingState) -> dict:
     logger.error(f"[{job_id}] Pipeline failed: {error_msg}")
 
     try:
-        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url)
+        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url, ssl="require")
         try:
             await update_job_status(conn, job_id, "failed", error_message=error_msg)
         finally:
@@ -326,3 +388,14 @@ def route_after_normalize(state: ResumeProcessingState) -> str:
         )
         return "store"
     return "normalize"
+
+
+def route_after_store(state: ResumeProcessingState) -> str:
+    """
+    Decide whether to invoke the Matcher service after the candidate is stored.
+
+    If a job_description is present, route to the match node. Otherwise terminate.
+    """
+    if state.get("job_description"):
+        return "match"
+    return "END"

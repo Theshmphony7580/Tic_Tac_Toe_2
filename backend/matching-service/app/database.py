@@ -12,6 +12,7 @@ async def create_pool():
     global _pool
     _pool = await asyncpg.create_pool(
         settings.database_url,
+        ssl="require",          # Supabase requires SSL on all connections
         min_size=2,
         max_size=10,
         command_timeout=30,

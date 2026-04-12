@@ -1,4 +1,4 @@
-"""
+he """
 test_graph.py — Unit tests for the LangGraph orchestrator pipeline.
 
 Tests use unittest.mock to stub out:
@@ -10,8 +10,8 @@ No live services, Redis, or database are needed to run these tests.
 
 Run with:
     cd f:\\Tic_Tac_Toe_2\\backend\\orchestrator-service
-    pip install pytest pytest-asyncio
-    pytest tests/test_graph.py -v
+    pip install pytest pytest-asyncio;
+    pytest tests/test_graph.py -v;
 """
 
 import time
@@ -77,9 +77,17 @@ def _make_initial_state() -> ResumeProcessingState:
         "normalized_skills": None,
         "normalization_error": None,
         "normalize_retries": 0,
+        "job_description": None,
+        "required_skills": None,
+        "nice_to_have_skills": None,
+        "threshold": None,
+        "top_k": None,
         "candidate_id": None,
         "embedding_stored": False,
         "store_error": None,
+        "match_result": None,
+        "match_error": None,
+        "match_processing_time_ms": None,
         "status": "parsing",
         "start_time": time.time(),
         "end_time": None,
@@ -153,6 +161,66 @@ async def test_happy_path():
     assert final_state["embedding_stored"] is True
     assert final_state["parse_error"] is None
     assert final_state["normalization_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_happy_path_with_match_request():
+    """
+    When a job description is provided, the orchestrator should call the
+    Matching Service after storing the candidate and include match metadata.
+    """
+    graph = build_graph()
+    initial_state = _make_initial_state()
+    initial_state["job_description"] = "Looking for a strong Python engineer"
+    initial_state["required_skills"] = ["Python"]
+    initial_state["nice_to_have_skills"] = ["Docker"]
+    initial_state["threshold"] = 0.0
+    initial_state["top_k"] = 3
+
+    parser_mock_resp = _make_http_response(200, PARSE_SUCCESS_RESPONSE)
+    norm_mock_resp = _make_http_response(200, NORMALIZE_SUCCESS_RESPONSE)
+    matcher_mock_resp = _make_http_response(200, {
+        "results": [],
+        "processing_time_ms": 50,
+        "total_candidates_scanned": 1,
+    })
+
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock()
+    mock_conn.fetchrow = AsyncMock(return_value={"id": FAKE_CANDIDATE_ID})
+
+    async def mock_post(url, **kwargs):
+        if "parse" in url:
+            return parser_mock_resp
+        if "normalize" in url:
+            return norm_mock_resp
+        if "match" in url:
+            return matcher_mock_resp
+        raise ValueError(f"Unexpected URL in mock: {url}")
+
+    mock_async_client = AsyncMock()
+    mock_async_client.__aenter__ = AsyncMock(return_value=mock_async_client)
+    mock_async_client.__aexit__ = AsyncMock(return_value=False)
+    mock_async_client.post = mock_post
+
+    with (
+        patch("builtins.open", MagicMock(return_value=MagicMock(
+            __enter__=MagicMock(return_value=MagicMock(read=MagicMock(return_value=b"%PDF fake resume content"))),
+            __exit__=MagicMock(return_value=False),
+        ))),
+        patch("app.nodes.httpx.AsyncClient", return_value=mock_async_client),
+        patch("app.nodes.asyncpg.connect", AsyncMock(return_value=mock_conn)),
+        patch("app.nodes.insert_candidate", AsyncMock(return_value=FAKE_CANDIDATE_ID)),
+        patch("app.nodes.update_job_status", AsyncMock()),
+        patch("app.nodes.embed_text", return_value=[0.1] * 384),
+    ):
+        final_state = await graph.ainvoke(initial_state)
+
+    assert final_state["status"] == "complete"
+    assert final_state["candidate_id"] == FAKE_CANDIDATE_ID
+    assert final_state["match_result"] is not None
+    assert final_state["match_processing_time_ms"] == 50
+    assert final_state["match_error"] is None
 
 
 # ── Test 2: Parser Fails (Max Retries) ────────────────────────────────────────

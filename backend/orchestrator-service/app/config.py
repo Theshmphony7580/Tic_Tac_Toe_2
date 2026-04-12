@@ -5,8 +5,8 @@ from functools import lru_cache
 class Settings(BaseSettings):
     service_name: str = "talentintel-orchestrator"
 
-    # Supabase PostgreSQL — same DB used by Normalizer + Matcher
-    database_url: str = "postgresql://postgres:ipQSzoJqgTyjM2mK@db.gwsfdlnfrdasntqyffdo.supabase.co:5432/postgres"
+    # Database URL — loaded from DATABASE_URL in .env (never hardcode here)
+    database_url: str
 
     # Redis — Celery broker + result backend
     redis_url: str = "redis://localhost:6379/0"
@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # Note: Parser runs on 8005, NOT 8001 (8001 is hijacked by Docker)
     parser_url: str = "http://localhost:8005"
     normalizer_url: str = "http://localhost:8002"
+    matching_url: str = "http://localhost:8003"
 
     # Embedding model — same as Matcher Service
     embedding_model: str = "all-MiniLM-L6-v2"
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     # HTTP timeouts
     parser_timeout_seconds: float = 60.0
     normalizer_timeout_seconds: float = 30.0
+    matching_timeout_seconds: float = 30.0
 
     # Max retry attempts per LangGraph node before giving up
     max_retries: int = 3

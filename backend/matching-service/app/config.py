@@ -1,17 +1,18 @@
-import os
+from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     service_name: str = "talentintel-matcher"
 
-    # Database (Supabase Postgres)
-    database_url: str = os.getenv("DATABASE_URL")
+    # Database — loaded from DATABASE_URL in .env (never hardcode here)
+    database_url: str
 
     # Embedding model (sentence-transformers)
     embedding_model: str = "all-MiniLM-L6-v2"
 
     # Matching defaults
-    default_threshold: float = 0.55   # lower than ideal — more candidates returned
+    default_threshold: float = 0.55
     default_top_k: int = 10
     max_top_k: int = 50
 
@@ -23,8 +24,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
 
+
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

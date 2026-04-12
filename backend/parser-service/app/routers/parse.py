@@ -57,6 +57,17 @@ async def parse_resume(
             
         # Step D & E: Return response
         processing_time_ms = int((time.time() - start_time) * 1000)
+
+        if parsed.confidence_score == 0.0 and parsed.warnings:
+            error_msg = "; ".join(parsed.warnings)
+            logger.error(f"Parser extraction failed: {error_msg}")
+            return ParseResponse(
+                success=False,
+                candidate_id=candidate_id,
+                data=parsed,
+                error=error_msg,
+                processing_time_ms=processing_time_ms,
+            )
         
         return ParseResponse(
             success=True,

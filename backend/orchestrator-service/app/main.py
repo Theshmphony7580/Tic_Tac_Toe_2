@@ -42,6 +42,11 @@ app = FastAPI(
 class ProcessRequest(BaseModel):
     file_url: str
     file_type: str = "pdf"
+    job_description: str | None = None
+    required_skills: list[str] | None = None
+    nice_to_have_skills: list[str] | None = None
+    threshold: float = 0.0
+    top_k: int = 5
 
     @field_validator("file_type")
     @classmethod
@@ -80,7 +85,7 @@ async def process_resume(req: ProcessRequest) -> ProcessResponse:
 
     # Insert job record into batch_jobs before enqueuing
     try:
-        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url)
+        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url, ssl="require")
         try:
             await conn.execute(
                 """
@@ -98,10 +103,47 @@ async def process_resume(req: ProcessRequest) -> ProcessResponse:
             detail="Database unavailable — could not create job record.",
         )
 
-    # Enqueue to Celery (non-blocking .delay() call)
-    process_resume_task.delay(job_id, req.file_url, req.file_type)
+    import asyncio
+    from app.graph import resume_graph
+    from app.state import ResumeProcessingState
+    import time
 
-    logger.info(f"Job {job_id} queued for file: {req.file_url}")
+    # User requested to bypass the queue locally entirely! 
+    # Just run LangGraph natively as a background async task.
+    initial_state: ResumeProcessingState = {
+        "job_id": job_id,
+        "file_url": req.file_url,
+        "file_type": req.file_type,
+        "parsed_resume": None,
+        "raw_skills": None,
+        "parse_error": None,
+        "parse_retries": 0,
+        "normalized_skills": None,
+        "normalization_error": None,
+        "normalize_retries": 0,
+        "job_description": req.job_description,
+        "required_skills": req.required_skills,
+        "nice_to_have_skills": req.nice_to_have_skills,
+        "threshold": req.threshold,
+        "top_k": req.top_k,
+        "candidate_id": None,
+        "embedding_stored": False,
+        "store_error": None,
+        "match_result": None,
+        "match_error": None,
+        "match_processing_time_ms": None,
+        "status": "parsing",
+        "start_time": time.time(),
+        "end_time": None,
+        "latency_ms": None,
+    }
+    try:
+        # We are awaiting the graph directly! This means the HTTP request will 
+        # WAIT until the ENTIRE pipeline (parse -> normalize -> match) is done!
+        await resume_graph.ainvoke(initial_state)
+    except Exception as e:
+        logger.error(f"LangGraph execution failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     return ProcessResponse(
         job_id=job_id,
@@ -122,7 +164,7 @@ async def get_job_status(job_id: str) -> StatusResponse:
         raise HTTPException(status_code=400, detail="Invalid job_id format (must be UUID).")
 
     try:
-        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url)
+        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url, ssl="require")
         try:
             row = await conn.fetchrow(
                 """

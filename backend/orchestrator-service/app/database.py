@@ -109,9 +109,9 @@ async def update_job_status(
         """
         UPDATE batch_jobs
         SET
-            status           = $2,
-            processed_files  = CASE WHEN $2 = 'complete' THEN 1 ELSE 0 END,
-            failed_files     = CASE WHEN $2 = 'failed'   THEN 1 ELSE 0 END,
+                status = $2::varchar(20),
+                processed_files = CASE WHEN $2::varchar(20) = 'complete' THEN 1 ELSE 0 END,
+                failed_files = CASE WHEN $2::varchar(20) = 'failed' THEN 1 ELSE 0 END,
             completed_at     = CASE WHEN $2 IN ('complete', 'failed') THEN NOW() ELSE NULL END
         WHERE id = $1
         """,

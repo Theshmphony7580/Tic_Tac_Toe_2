@@ -144,6 +144,15 @@ def extract_from_text(raw_text: str) -> ParsedCandidate:
         logger.error(f"Groq returned invalid JSON: {e}")
         return _regex_fallback(raw_text)
     except Exception as e:
+        msg = str(e)
+        if "invalid_api_key" in msg.lower() or "invalid api key" in msg.lower():
+            logger.error(f"Groq authentication error: {e}")
+            return ParsedCandidate(
+                raw_text=raw_text,
+                confidence_score=0.0,
+                warnings=["Invalid API key for Groq. Please update GROQ_API_KEY."],
+            )
+        
         logger.error(f"Unexpected extraction error: {e}")
         return ParsedCandidate(
             raw_text=raw_text,

@@ -1,5 +1,5 @@
 """
-Local Integration Test — Agent 1 → Agent 2 → Agent 3
+Local Integration Test — Agent 1 → Agent 2 → Agent 3 (No Imports)
 
 Tests the full pipeline WITHOUT Supabase:
   1. Parser: Extract from PDF
@@ -12,26 +12,116 @@ Usage:
 """
 
 import sys
-import asyncio
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "parser-service"))
-sys.path.insert(0, str(Path(__file__).parent / "normalization-service"))
-sys.path.insert(0, str(Path(__file__).parent / "matching-service"))
+ROOT = Path(__file__).parent
 
+# ── Import Parser Service ────────────────────────────────────────────────────
+sys.path.insert(0, str(ROOT / "parser-service"))
 from app.parsers.pdf_parser import parse_pdf
 from app.extraction import extract_from_text as parse_extract
 
-# Re-path for normalization
-sys.path.insert(0, str(Path(__file__).parent / "normalization-service"))
-from app.fuzzy_matcher import normalize_skills_via_fuzzy
-from app.schemas import TaxonomyRecord
+# ── Minimal Normalization Logic (Copied) ──────────────────────────────────────
+from typing import List, Optional, Tuple
+from pydantic import BaseModel
 
+class TaxonomyRecord(BaseModel):
+    canonical_name: str
+    aliases: List[str]
+    category: str
+
+class NormalizedSkill(BaseModel):
+    raw_name: str
+    canonical_name: Optional[str] = None
+    category: Optional[str] = None
+    confidence: float
+    matched_via: str
+
+def exact_or_fuzzy_match(raw_skill: str, taxonomy: List[TaxonomyRecord]) -> Optional[NormalizedSkill]:
+    """
+    Simplified version of fuzzy_matcher.py logic.
+    """
+    from rapidfuzz import fuzz
+
+    raw_lower = raw_skill.strip().lower()
+    if not raw_lower:
+        return None
+
+    best_score = 0.0
+    best_canonical = None
+    best_category = None
+
+    for record in taxonomy:
+        # Check canonical exact match
+        if raw_lower == record.canonical_name.lower():
+            return NormalizedSkill(
+                raw_name=raw_skill,
+                canonical_name=record.canonical_name,
+                category=record.category,
+                confidence=100.0,
+                matched_via="exact"
+            )
+
+        # Check aliases exact match
+        for alias in record.aliases:
+            if raw_lower == alias.lower():
+                return NormalizedSkill(
+                    raw_name=raw_skill,
+                    canonical_name=record.canonical_name,
+                    category=record.category,
+                    confidence=100.0,
+                    matched_via="alias"
+                )
+
+        # Proceed to Fuzzy Matching
+        score_canonical = fuzz.WRatio(raw_lower, record.canonical_name.lower())
+
+        # Take the best score among the canonical name and aliases
+        best_candidate_score = score_canonical
+        for alias in record.aliases:
+            alias_score = fuzz.WRatio(raw_lower, alias.lower())
+            if alias_score > best_candidate_score:
+                best_candidate_score = alias_score
+
+        if best_candidate_score > best_score:
+            best_score = best_candidate_score
+            best_canonical = record.canonical_name
+            best_category = record.category
+
+    # Determine if the best fuzzy match meets the threshold
+    if best_score >= 85.0:
+        return NormalizedSkill(
+            raw_name=raw_skill,
+            canonical_name=best_canonical,
+            category=best_category,
+            confidence=best_score,
+            matched_via="fuzzy"
+        )
+
+    return None
+
+def normalize_skills_via_fuzzy(raw_skills: List[str], taxonomy: List[TaxonomyRecord]) -> Tuple[List[NormalizedSkill], List[str]]:
+    """
+    Simplified version of fuzzy_matcher.py logic.
+    """
+    resolved = []
+    unresolved = []
+
+    for skill in raw_skills:
+        match = exact_or_fuzzy_match(skill, taxonomy)
+        if match:
+            resolved.append(match)
+        else:
+            unresolved.append(skill)
+
+    return resolved, unresolved
+
+# ── Import Matcher Components ────────────────────────────────────────────────
 from sentence_transformers import SentenceTransformer
 
 
-async def load_sample_taxonomy() -> list[TaxonomyRecord]:
+def load_sample_taxonomy():
     """Load a small sample taxonomy without needing DB."""
     return [
         TaxonomyRecord(canonical_name="Python", aliases=["python3", "py"], category="Programming Languages"),
@@ -74,13 +164,18 @@ def test_pipeline(resume_path: str):
         print(f"  ✓ Extracted {len(raw_text)} chars")
 
         print("Extracting structured data with LLM...")
+        start = time.time()
         parsed = parse_extract(raw_text)
-        print(f"  ✓ Confidence: {parsed.confidence_score:.2f}")
+        elapsed = time.time() - start
+        print(f"  ✓ Confidence: {parsed.confidence_score:.2f} (took {elapsed:.1f}s)")
         print(f"  ✓ Name: {parsed.name or 'N/A'}")
         print(f"  ✓ Raw skills: {len(parsed.raw_skills)} found")
-        print(f"    {parsed.raw_skills[:3]}...")  # Preview first 3
+        if parsed.raw_skills:
+            print(f"    {parsed.raw_skills[:3]}...")  # Preview first 3
     except Exception as e:
         print(f"  ✗ Parser failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -90,7 +185,7 @@ def test_pipeline(resume_path: str):
     print("-" * 70)
     try:
         print("Loading skill taxonomy...")
-        taxonomy = asyncio.run(load_sample_taxonomy())
+        taxonomy = load_sample_taxonomy()
         print(f"  ✓ Loaded {len(taxonomy)} skills")
 
         print("Normalizing raw skills...")
@@ -101,6 +196,8 @@ def test_pipeline(resume_path: str):
             print(f"    Matched examples: {[n.canonical_name for n in normalized[:3]]}")
     except Exception as e:
         print(f"  ✗ Normalizer failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -133,6 +230,8 @@ def test_pipeline(resume_path: str):
 
     except Exception as e:
         print(f"  ✗ Matcher failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
     # ─────────────────────────────────────────────────────────────────────────
