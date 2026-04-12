@@ -83,8 +83,8 @@ export default function Sidebar() {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{ width: open ? 224 : 64 }}
-      className={`h-[calc(100vh-4rem)] bg-white border-r border-gray-200
-                 flex flex-col justify-between fixed left-0 top-10 z-40
+      className={`h-screen bg-white border-r border-gray-200
+                 flex flex-col justify-between fixed left-0 top-0 z-[60]
                  transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${menuOpen ? "overflow-visible" : "overflow-hidden"}`}
     >
       {/* Inner wrapper — fixed width so children don't reflow during animation */}

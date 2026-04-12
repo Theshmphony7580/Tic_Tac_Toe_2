@@ -118,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         })
         localStorage.removeItem("cached_user")
+        localStorage.removeItem("dummy_session")
         setUser(null)
         setAccessToken(null)
         clearSessionCookie()
@@ -168,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (token) {
             setAccessToken(token)
+            setSessionCookie() // <-- FIX: ensures middleware knows we have a session
             // Clean URL
             window.history.replaceState({}, "", window.location.pathname)
             // Still need to fetch user
@@ -178,6 +180,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 .then(r => r.json())
                 .then(data => { if (data.user) setUser(data.user) })
                 .finally(() => setLoading(false))
+        } else if (localStorage.getItem("dummy_session") === "1") {
+            // Dev dummy bypass — restore dummy state without hitting auth service
+            setAccessToken("dummy_token")
+            setUser({
+                id: "dummy_id",
+                email: "dummy@example.com",
+                name: "Dummy User",
+                avatar_url: null,
+            })
+            setSessionCookie()
+            setLoading(false)
         } else {
             refreshSession().finally(() => setLoading(false))
         }

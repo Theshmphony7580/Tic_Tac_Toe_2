@@ -12,6 +12,10 @@ VALID_API_KEYS = {
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
 
+        # Skip CORS preflight requests (OPTIONS) — they never carry custom headers
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Skip public routes
         if request.url.path in ["/", "/health", "/docs", "/redoc", "/openapi.json"]:
             return await call_next(request)

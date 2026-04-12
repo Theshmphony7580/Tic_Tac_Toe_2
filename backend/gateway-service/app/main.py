@@ -22,12 +22,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+from app.config import settings
+
 # Register middleware
 app.add_middleware(APIKeyMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # change in production
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

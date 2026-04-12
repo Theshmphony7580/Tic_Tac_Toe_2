@@ -1,15 +1,17 @@
 "use client";
 
 import React, { useState, useRef, useCallback } from "react";
-import { Upload, FileText, Trash2, CheckCircle, AlertCircle } from "lucide-react";
+import { Upload, FileText, Trash2, CheckCircle, AlertCircle, ChevronDown } from "lucide-react";
+
 /* ────────── types ────────── */
 interface UploadedFile {
   id: string;
   name: string;
   size: number;
-  storedName: string;
   progress: number;
   status: "uploading" | "done" | "error";
+  errorMsg?: string;
+  result?: any;
   abortController?: AbortController;
 }
 
@@ -26,14 +28,25 @@ const ACCEPTED_EXTENSIONS = ".pdf,.docx,.txt";
 const ACCEPTED_MIME =
   "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 
+const ROLES = [
+  "Frontend Engineer",
+  "Backend Engineer",
+  "Fullstack Engineer",
+  "Data Scientist",
+  "DevOps Engineer",
+  "UI/UX Designer",
+  "Product Manager"
+];
+
 /* ────────── component ────────── */
 export default function AnalyserPage() {
+  const [selectedRole, setSelectedRole] = useState(ROLES[0]);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   /* ── upload one file via XHR (so we get progress events) ── */
-  const uploadFile = useCallback((file: File) => {
+  const uploadFile = useCallback((file: File, currentRole: string) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const abortController = new AbortController();
 
@@ -41,7 +54,6 @@ export default function AnalyserPage() {
       id,
       name: file.name,
       size: file.size,
-      storedName: "",
       progress: 0,
       status: "uploading",
       abortController,
@@ -67,25 +79,27 @@ export default function AnalyserPage() {
           setFiles((prev) =>
             prev.map((f) =>
               f.id === id
-                ? { ...f, progress: 100, status: "done", storedName: res.storedName }
+                ? { ...f, progress: 100, status: "done", result: res }
                 : f
             )
           );
         } catch {
           setFiles((prev) =>
-            prev.map((f) => (f.id === id ? { ...f, status: "error" } : f))
+            prev.map((f) =>
+              f.id === id ? { ...f, progress: 100, status: "done", result: { message: "Success but invalid JSON response", raw: xhr.responseText } } : f
+            )
           );
         }
       } else {
         setFiles((prev) =>
-          prev.map((f) => (f.id === id ? { ...f, status: "error" } : f))
+          prev.map((f) => (f.id === id ? { ...f, status: "error", errorMsg: `HTTP ${xhr.status}: ${xhr.statusText}` } : f))
         );
       }
     });
 
     xhr.addEventListener("error", () => {
       setFiles((prev) =>
-        prev.map((f) => (f.id === id ? { ...f, status: "error" } : f))
+        prev.map((f) => (f.id === id ? { ...f, status: "error", errorMsg: "Network Error" } : f))
       );
     });
 
@@ -95,8 +109,14 @@ export default function AnalyserPage() {
 
     const formData = new FormData();
     formData.append("file", file);
+    // Even if BE doesn't strictly process 'role' yet, we pass it just in case
+    formData.append("role", currentRole);
 
-    xhr.open("POST", "/api/upload");
+    // Endpoint must hit /api/v1/parse because gateway-service prefixes the parse router
+    const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:8000";
+    xhr.open("POST", `${gatewayUrl}/api/v1/parse`);
+    // Required by APIKeyMiddleware in gateway-service/app/middleware/auth.py
+    xhr.setRequestHeader("X-API-Key", "sk_test_123");
     xhr.send(formData);
   }, []);
 
@@ -107,33 +127,18 @@ export default function AnalyserPage() {
       Array.from(fileList).forEach((f) => {
         const ext = f.name.split(".").pop()?.toLowerCase();
         if (["pdf", "docx", "txt"].includes(ext || "")) {
-          uploadFile(f);
+          uploadFile(f, selectedRole);
         }
       });
     },
-    [uploadFile]
+    [uploadFile, selectedRole]
   );
 
   /* ── delete ── */
-  const handleDelete = useCallback(async (file: UploadedFile) => {
-    // Abort if still uploading
+  const handleDelete = useCallback((file: UploadedFile) => {
     if (file.status === "uploading" && file.abortController) {
       file.abortController.abort();
     }
-
-    // Remove from server if uploaded
-    if (file.status === "done" && file.storedName) {
-      try {
-        await fetch("/api/upload", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ storedName: file.storedName }),
-        });
-      } catch {
-        /* best effort */
-      }
-    }
-
     setFiles((prev) => prev.filter((f) => f.id !== file.id));
   }, []);
 
@@ -159,33 +164,27 @@ export default function AnalyserPage() {
 
   /* ────────── render ────────── */
   return (
-    <div className="min-h-screen flex items-start justify-center p-[3rem_1.5rem] bg-gradient-to-br from-[#f8f9fc] via-[#eef1f8] to-[#e8ecf6] max-sm:p-[1.25rem_1rem]">
-      <div className="w-full max-w-[640px] bg-white rounded-[20px] shadow-[0_4px_32px_rgba(80,90,140,0.08),0_1.5px_6px_rgba(80,90,140,0.04)] p-[2.5rem_2.25rem_2rem] max-sm:p-[1.75rem_1.25rem_1.5rem] max-sm:rounded-[16px]">
-        {/* Header */}
-        <div className="mb-7">
-          <h1 className="text-[1.65rem] font-bold text-[#1a1d2e] tracking-[-0.02em] m-0 mb-[0.35rem]">Upload Resume</h1>
-          <p className="text-[0.92rem] text-[#6b7194] m-0 leading-relaxed">
-            Upload your resume to get AI-powered insights and analysis.
-          </p>
+    <div className="min-h-screen p-6 lg:p-10 bg-[#fdfcfb] font-sans text-gray-800">
+      <div className="max-w-[720px] mx-auto space-y-8">
+        
+        <div className="mb-2">
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Resume Analyser</h1>
+          <p className="text-sm text-gray-500 mt-1">Upload candidate resumes to extract insights instantly.</p>
         </div>
 
-        {/* Drop zone */}
+        {/* 1. Upload Resume Dropzone */}
         <div
-          className={`relative flex flex-col items-center justify-center gap-[0.6rem] p-[2.75rem_2rem] border-2 border-dashed border-[#c5cbdf] rounded-[14px] cursor-pointer transition-[border-color,background,box-shadow] duration-250 ${
+          className={`relative flex flex-col items-center justify-center gap-3 p-10 border-2 border-dashed rounded-xl cursor-pointer transition-colors duration-200 ${
             isDragging
-              ? "border-[#7c6ff5] bg-[#ede9ff] shadow-[0_0_0_4px_rgba(124,111,245,0.12)]"
-              : "bg-[#fafafd] hover:border-[#7c6ff5] hover:bg-[#f5f3ff]"
-          } max-sm:p-[2rem_1.25rem]`}
+              ? "border-indigo-500 bg-indigo-50/50"
+              : "border-gray-200 bg-white hover:border-indigo-400 hover:bg-gray-50/50"
+          }`}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
           onClick={() => inputRef.current?.click()}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-          }}
-          id="upload-drop-zone"
         >
           <input
             ref={inputRef}
@@ -197,89 +196,123 @@ export default function AnalyserPage() {
               handleFiles(e.target.files);
               e.target.value = "";
             }}
-            id="file-input"
           />
 
-          <div className="w-[52px] h-[52px] flex items-center justify-center rounded-[14px] bg-gradient-to-br from-[#7c6ff5] to-[#6354d9] text-white shadow-[0_4px_14px_rgba(124,111,245,0.3)] mb-1">
+          <div className="w-14 h-14 flex items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 mb-2">
             <Upload size={28} strokeWidth={1.8} />
           </div>
 
-          <p className="text-[0.95rem] text-[#4a4f6a] m-0">
-            <span className="text-[#7c6ff5] font-semibold no-underline cursor-pointer hover:underline">Click here</span> to upload your
-            file or drag.
+          <p className="text-sm text-gray-600 font-medium text-center">
+            <span className="text-indigo-600 font-semibold cursor-pointer">Click to browse</span> or drag and drop files
           </p>
-          <p className="text-[0.8rem] text-[#9a9fba] m-0">
-            Supported Formats: PDF, DOCX, TXT (10MB each)
-          </p>
+          <p className="text-xs text-gray-400">Supported: PDF, DOCX, TXT</p>
         </div>
 
-        {/* File list */}
+        {/* 2. Select Role */}
+        <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm space-y-3">
+          <label htmlFor="role-select" className="block text-sm font-semibold text-gray-700">
+            Select Role for Keyword Matching
+          </label>
+          <div className="relative">
+            <select
+              id="role-select"
+              value={selectedRole}
+              onChange={(e) => setSelectedRole(e.target.value)}
+              className="appearance-none w-full bg-gray-50 border border-gray-200 text-gray-700 py-3 px-4 pr-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm font-medium"
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
+              <ChevronDown size={18} />
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Upload Status */}
         {files.length > 0 && (
-          <ul className="list-none mt-6 mb-0 p-0 flex flex-col gap-3">
-            {files.map((file) => (
-              <li
-                key={file.id}
-                className="flex items-center gap-[0.85rem] p-[0.9rem_1rem] bg-[#fafafd] border border-[#e8ebf2] rounded-xl transition-all duration-200 hover:border-[#d0d4e4] hover:shadow-[0_2px_10px_rgba(80,90,140,0.06)]"
-                id={`file-${file.id}`}
-              >
-                {/* icon */}
-                <div className="shrink-0 w-[38px] h-[38px] flex items-center justify-center bg-gradient-to-br from-[#eceaff] to-[#e0dcff] rounded-[10px] text-[#7c6ff5]">
-                  <FileText size={20} strokeWidth={1.6} />
-                </div>
-
-                {/* info + progress */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className="text-[0.88rem] font-semibold text-[#1a1d2e] whitespace-nowrap overflow-hidden text-ellipsis"
-                      title={file.name}
-                    >
-                      {file.name}
-                    </span>
-                    <span className="text-[0.8rem] font-semibold text-[#7c6ff5] shrink-0">
-                      {file.status === "error" ? (
-                        <AlertCircle size={16} className="text-[#f25f5c]" />
-                      ) : file.status === "done" ? (
-                        <CheckCircle size={16} className="text-[#34c77b]" />
-                      ) : (
-                        `${file.progress}%`
-                      )}
-                    </span>
-                  </div>
-                  <span className="block text-[0.75rem] text-[#9a9fba] mt-[0.1rem]">
-                    {formatBytes(file.size)}
-                  </span>
-                  {/* progress bar */}
-                  <div className="h-[5px] bg-[#e8ebf2] rounded-full overflow-hidden mt-2">
-                    <div
-                      className={`h-full rounded-full transition-[width] duration-300 ease-in-out ${
-                        file.status === "error"
-                          ? "bg-gradient-to-r from-[#f25f5c] to-[#f78584]"
-                          : file.status === "done"
-                          ? "bg-gradient-to-r from-[#34c77b] to-[#49e098]"
-                          : "bg-gradient-to-r from-[#7c6ff5] to-[#9b8fff]"
-                      }`}
-                      style={{ width: `${file.progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* delete */}
-                <button
-                  className="shrink-0 w-[34px] h-[34px] flex items-center justify-center border-none bg-transparent text-[#b0b5c9] rounded-[8px] cursor-pointer transition-colors duration-200 hover:text-[#f25f5c] hover:bg-[#fef2f2]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(file);
-                  }}
-                  title="Remove file"
-                  id={`delete-${file.id}`}
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm space-y-4">
+             <h3 className="text-sm font-semibold text-gray-700">Upload Status</h3>
+             <ul className="flex flex-col gap-3">
+              {files.map((file) => (
+                <li
+                  key={file.id}
+                  className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg border border-gray-100"
                 >
-                  <Trash2 size={18} strokeWidth={1.6} />
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <div className="shrink-0 w-10 h-10 flex items-center justify-center bg-indigo-100/50 rounded-lg text-indigo-600">
+                    <FileText size={20} strokeWidth={1.6} />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-sm font-semibold text-gray-800 truncate" title={file.name}>
+                        {file.name}
+                      </span>
+                      <span className="text-xs font-semibold text-indigo-600 shrink-0">
+                        {file.status === "error" ? (
+                          <AlertCircle size={16} className="text-red-500" />
+                        ) : file.status === "done" ? (
+                          <CheckCircle size={16} className="text-green-500" />
+                        ) : (
+                          `${file.progress}%`
+                        )}
+                      </span>
+                    </div>
+                    {/* Status Text & Progress bar */}
+                    {file.status === "error" ? (
+                      <span className="text-xs text-red-500">{file.errorMsg}</span>
+                    ) : (
+                      <>
+                        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-300 ${
+                               file.status === "done" ? "bg-green-500" : "bg-indigo-500"
+                            }`}
+                            style={{ width: `${file.progress}%` }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <button
+                    className="shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(file);
+                    }}
+                    title="Remove file"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
+
+        {/* 4. JSON Result of /parse Endpoint */}
+        {files.some(f => f.status === "done" && f.result) && (
+          <div className="bg-[#1e1e1e] rounded-xl shadow-lg border border-gray-800 overflow-hidden flex flex-col">
+            <div className="bg-[#2d2d2d] px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+              <span className="text-xs font-semibold tracking-wider text-gray-300 uppercase">Parse Result (JSON)</span>
+            </div>
+            <div className="p-4 max-h-[600px] overflow-auto">
+              <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap word-break-all">
+                {files
+                  .filter(f => f.status === "done" && f.result)
+                  .map(f => (
+                    <div key={`result-${f.id}`} className="mb-6 last:mb-0">
+                      <div className="text-gray-500 text-xs mb-2 border-b border-gray-700 pb-1">File: {f.name}</div>
+                      {JSON.stringify(f.result, null, 2)}
+                    </div>
+                  ))}
+              </pre>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
