@@ -1,75 +1,155 @@
-import httpx
-from fastapi import FastAPI
-from dotenv import load_dotenv
-import os
-import traceback
+"""
+main.py — Orchestrator Service FastAPI entrypoint.
 
-load_dotenv()
+Endpoints:
+    POST /process           — Accepts a resume file path, creates a job,
+                              enqueues Celery pipeline task, returns job_id.
+    GET  /status/{job_id}   — Polls batch_jobs table for current job status.
+    GET  /health            — Simple health probe.
+"""
 
-app = FastAPI()
+import logging
+import uuid
 
-PARSER_URL = os.getenv("PARSER_URL")
-NORMALIZATION_URL = os.getenv("NORMALIZATION_URL")
+import asyncpg
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, field_validator
+
+from app.config import get_settings
+from app.workers import process_resume_task
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+app = FastAPI(
+    title="TalentIntel Orchestrator Service",
+    description=(
+        "Central pipeline coordinator. Accepts resume jobs, enqueues them to "
+        "Celery workers running the LangGraph state machine (parse → normalize → store)."
+    ),
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
 
 
-@app.post("/process")
-async def process_resume(data: dict):
+# ── Request / Response Schemas ────────────────────────────────────────────────
 
-    file_path = data.get("file_url")
+class ProcessRequest(BaseModel):
+    file_url: str
+    file_type: str = "pdf"
+
+    @field_validator("file_type")
+    @classmethod
+    def validate_file_type(cls, v: str) -> str:
+        v = v.lower().strip()
+        if v not in {"pdf", "docx", "txt"}:
+            raise ValueError("file_type must be 'pdf', 'docx', or 'txt'")
+        return v
+
+
+class ProcessResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+
+class StatusResponse(BaseModel):
+    job_id: str
+    status: str
+    processed_files: int
+    failed_files: int
+    completed_at: str | None
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@app.post("/process", response_model=ProcessResponse, status_code=202)
+async def process_resume(req: ProcessRequest) -> ProcessResponse:
+    """
+    1. Validates the incoming request.
+    2. Creates a tracking row in batch_jobs (status='queued').
+    3. Enqueues the Celery pipeline task asynchronously.
+    4. Returns immediately with the job_id for polling.
+    """
+    job_id = str(uuid.uuid4())
+
+    # Insert job record into batch_jobs before enqueuing
+    try:
+        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url)
+        try:
+            await conn.execute(
+                """
+                INSERT INTO batch_jobs (id, total_files, processed_files, failed_files, status)
+                VALUES ($1, 1, 0, 0, 'queued')
+                """,
+                uuid.UUID(job_id),
+            )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.error(f"Failed to insert batch_job record for {job_id}: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable — could not create job record.",
+        )
+
+    # Enqueue to Celery (non-blocking .delay() call)
+    process_resume_task.delay(job_id, req.file_url, req.file_type)
+
+    logger.info(f"Job {job_id} queued for file: {req.file_url}")
+
+    return ProcessResponse(
+        job_id=job_id,
+        status="queued",
+        message=f"Resume processing started. Poll GET /status/{job_id} for updates.",
+    )
+
+
+@app.get("/status/{job_id}", response_model=StatusResponse)
+async def get_job_status(job_id: str) -> StatusResponse:
+    """
+    Queries the batch_jobs table and returns the current status of a pipeline job.
+    """
+    # Validate that job_id is a valid UUID
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job_id format (must be UUID).")
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-
-            # STEP 1: Parser
-            with open(file_path, "rb") as f:
-                files = {
-                    "file": (os.path.basename(file_path), f)
-                }
-
-                parser_res = await client.post(PARSER_URL, files=files)
-
-            parsed_data = parser_res.json()
-
-            # Check parser success
-            if not parsed_data.get("success"):
-                return {
-                    "status": "failed",
-                    "stage": "parser",
-                    "error": parsed_data
-                }
-
-            # STEP 2: Prepare input for normalizer
-            normalization_input = {
-                "raw_skills": parsed_data.get("data", {}).get("raw_skills", [])
-            }
-
-            # STEP 3: Call normalizer
-            norm_res = await client.post(
-                NORMALIZATION_URL,
-                json=normalization_input
+        conn: asyncpg.Connection = await asyncpg.connect(settings.database_url)
+        try:
+            row = await conn.fetchrow(
+                """
+                SELECT status, processed_files, failed_files, completed_at
+                FROM batch_jobs
+                WHERE id = $1
+                """,
+                uuid.UUID(job_id),
             )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.error(f"DB error fetching status for job {job_id}: {exc}")
+        raise HTTPException(status_code=503, detail=f"Database error: {exc}")
 
-            normalized_data = norm_res.json()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
-        # FINAL RESPONSE
-        return {
-            "status": "success",
-            "parsed": parsed_data,
-            "normalized": normalized_data
-        }
+    return StatusResponse(
+        job_id=job_id,
+        status=row["status"],
+        processed_files=row["processed_files"] or 0,
+        failed_files=row["failed_files"] or 0,
+        completed_at=str(row["completed_at"]) if row["completed_at"] else None,
+    )
 
-    except httpx.ConnectError:
-        return {
-            "status": "failed",
-            "error": "Service not reachable"
-        }
 
-    except Exception as e:
-        tb = traceback.format_exc()
-        print("ERROR TRACE:\n", tb)
-
-        return {
-            "status": "failed",
-            "error": str(e),
-            "trace": tb
-        }
+@app.get("/health")
+def health_check() -> dict:
+    return {"status": "ok", "service": settings.service_name}

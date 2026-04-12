@@ -1,10 +1,11 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_name: str = "talentintel-matcher"
 
     # Database (Supabase Postgres)
-    database_url: str = "postgresql://postgres:ipQSzoJqgTyjM2mK@db.gwsfdlnfrdasntqyffdo.supabase.co:5432/postgres"
+    database_url: str = os.getenv("DATABASE_URL")
 
     # Embedding model (sentence-transformers)
     embedding_model: str = "all-MiniLM-L6-v2"

@@ -74,6 +74,20 @@ CREATE TABLE skill_taxonomy (
 CREATE INDEX idx_skill_taxonomy_name ON skill_taxonomy(canonical_name);
 CREATE INDEX idx_skill_taxonomy_aliases ON skill_taxonomy USING GIN(aliases);
 
+-- Skill Embeddings (for semantic normalization)
+-- Each canonical skill gets a 384-dim vector so semantically similar skills cluster together
+-- e.g., "K8s", "Kubernetes", "Container Orchestration" all close in vector space
+CREATE TABLE IF NOT EXISTS skill_embeddings (
+    id SERIAL PRIMARY KEY,
+    skill_id INT NOT NULL REFERENCES skill_taxonomy(id) ON DELETE CASCADE,
+    canonical_name VARCHAR(255) NOT NULL UNIQUE,
+    embedding vector(384),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_skill_embeddings_vector ON skill_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
+CREATE INDEX idx_skill_embeddings_name ON skill_embeddings(canonical_name);
+
 -- Batch Jobs (for async processing tracking)
 CREATE TABLE batch_jobs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
