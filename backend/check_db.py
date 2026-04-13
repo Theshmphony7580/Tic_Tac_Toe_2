@@ -1,54 +1,45 @@
-"""
-Quick connectivity check for Supabase pgvector.
-Run from: f:\Tic_Tac_Toe_2\backend
-  python check_db.py
-"""
+"""Check what's actually in the candidates table"""
 import asyncio
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+sys.path.insert(0, str(ROOT / "matching-service"))
+from app.config import get_settings
 import asyncpg
-import os
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:ipQSzoJqgTyjM2mK@db.gwsfdlnfrdasntqyffdo.supabase.co:5432/postgres"
-)
+async def check_db():
+    settings = get_settings()
 
-async def main():
-    print(f"🔌 Connecting to: {DATABASE_URL[:40]}...")
+    print("Connecting to database...")
+    conn = await asyncpg.connect(settings.database_url, ssl="require")
+
     try:
-        conn = await asyncpg.connect(DATABASE_URL, ssl="require", timeout=10)
+        # Check total candidates
+        count = await conn.fetchval("SELECT COUNT(*) FROM candidates")
+        print(f"Total candidates: {count}")
 
-        # 1. Basic connectivity
-        version = await conn.fetchval("SELECT version();")
-        print(f"✅ Connected! PostgreSQL: {version[:60]}")
+        # Check one candidate
+        row = await conn.fetchrow("""
+            SELECT
+                id, name, email, canonical_skills, skill_proficiencies, embedding
+            FROM candidates
+            LIMIT 1
+        """)
 
-        # 2. pgvector extension present?
-        pgvector = await conn.fetchval(
-            "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
-        )
-        if pgvector:
-            print(f"✅ pgvector extension found (v{pgvector})")
+        if row:
+            print(f"\nSample candidate:")
+            print(f"  ID: {row['id']}")
+            print(f"  Name: {row['name']}")
+            print(f"  Email: {row['email']}")
+            print(f"  Canonical skills: {row['canonical_skills']}")
+            print(f"  Skill proficiencies: {row['skill_proficiencies']}")
+            print(f"  Embedding: {type(row['embedding'])} ({len(row['embedding']) if row['embedding'] else 0} dims)")
         else:
-            print("⚠️  pgvector extension NOT installed in this database.")
+            print("No candidates found!")
 
-        # 3. List relevant tables
-        tables = await conn.fetch(
-            """
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = 'public'
-            ORDER BY tablename;
-            """
-        )
-        if tables:
-            print(f"📋 Tables in public schema: {[t['tablename'] for t in tables]}")
-        else:
-            print("⚠️  No tables found in public schema (migrations not run yet?)")
-
+    finally:
         await conn.close()
-        print("\n🎉 Vector DB check complete.")
-
-    except Exception as e:
-        print(f"❌ Connection FAILED: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(check_db())

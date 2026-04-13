@@ -85,104 +85,140 @@ async def match_job_to_candidates(req: MatchJobRequest) -> List[CandidateMatch]:
     """Main matching logic."""
     logger.info(f"Matching job: {req.job_description[:50]}...")
 
-    # 1. Embed job description
-    jd_embedding = model.encode(req.job_description, convert_to_numpy=True)
-    jd_vector_str = "[" + ",".join(str(v) for v in jd_embedding) + "]"
-
-    # 2. Connect to DB
-    conn = await asyncpg.connect(settings.database_url, ssl="require")
-
     try:
-        # 3. Query candidates with pgvector
-        query = """
-            SELECT
-                id::text,
-                name,
-                email,
-                canonical_skills,
-                skill_proficiencies,
-                1 - (embedding <=> $1::vector) AS semantic_similarity
-            FROM candidates
-            WHERE embedding IS NOT NULL
-              AND 1 - (embedding <=> $1::vector) >= $2
-            ORDER BY semantic_similarity DESC
-            LIMIT $3;
-        """
+        # 1. Embed job description
+        logger.info("Generating job description embedding...")
+        jd_embedding = model.encode(req.job_description, convert_to_numpy=True)
+        jd_vector_str = "[" + ",".join(str(v) for v in jd_embedding) + "]"
+        logger.info(f"✓ JD embedding generated ({len(jd_embedding)} dims)")
 
-        rows = await conn.fetch(
-            query,
-            jd_vector_str,
-            req.threshold,
-            req.top_k
-        )
+        # 2. Connect to DB
+        logger.info("Connecting to database...")
+        conn = await asyncpg.connect(settings.database_url, ssl="require")
+        logger.info("✓ Connected to database")
 
-        if not rows:
-            logger.info("No candidates found above threshold")
-            return []
+        try:
+            # 3. Query candidates with pgvector
+            logger.info("Querying candidates with pgvector...")
+            query = """
+                SELECT
+                    id::text,
+                    name,
+                    email,
+                    canonical_skills,
+                    skill_proficiencies,
+                    1 - (embedding <=> $1::vector) AS semantic_similarity
+                FROM candidates
+                WHERE embedding IS NOT NULL
+                  AND 1 - (embedding <=> $1::vector) >= $2
+                ORDER BY semantic_similarity DESC
+                LIMIT $3;
+            """
 
-        # 4. Score each candidate
-        results = []
-        for row in rows:
-            candidate_skills = set(row["canonical_skills"] or [])
-            required_set = set(req.required_skills)
-            nice_set = set(req.nice_to_have_skills)
+            rows = await conn.fetch(
+                query,
+                jd_vector_str,
+                req.threshold,
+                req.top_k
+            )
+            logger.info(f"✓ Found {len(rows)} candidates")
 
-            # Semantic similarity (from pgvector)
-            semantic_sim = float(row["semantic_similarity"])
+            if not rows:
+                logger.info("No candidates found above threshold")
+                return []
 
-            # Skill match score
-            matched_required = len(candidate_skills & required_set)
-            matched_nice = len(candidate_skills & nice_set)
-            total_required = len(required_set)
+            # 4. Score each candidate
+            results = []
+            for i, row in enumerate(rows):
+                try:
+                    logger.info(f"Scoring candidate {i+1}/{len(rows)}: {row['name']}")
+                    candidate_skills = set(row["canonical_skills"] or [])
+                    required_set = set(req.required_skills)
+                    nice_set = set(req.nice_to_have_skills)
 
-            if total_required > 0:
-                skill_score = (matched_required / total_required) * 0.8
-                if nice_set:
-                    skill_score += (matched_nice / len(nice_set)) * 0.2
-            else:
-                skill_score = 0.5  # Neutral if no required skills
+                    # Semantic similarity (from pgvector)
+                    semantic_sim = float(row["semantic_similarity"])
 
-            # Composite score (weighted average)
-            composite = (semantic_sim * 0.6) + (skill_score * 0.4)
+                    # Skill match score
+                    matched_required = len(candidate_skills & required_set)
+                    matched_nice = len(candidate_skills & nice_set)
+                    total_required = len(required_set)
+                    total_nice = len(nice_set)
 
-            # Missing skills
-            missing_required = required_set - candidate_skills
-            missing_nice = nice_set - candidate_skills
-            missing_skills = [
-                SkillGap(skill_name=s, importance="required") for s in missing_required
-            ] + [
-                SkillGap(skill_name=s, importance="nice_to_have") for s in missing_nice
-            ]
+                    # Avoid division by zero
+                    if total_required > 0:
+                        skill_score_req = matched_required / total_required
+                    else:
+                        skill_score_req = 0.0
 
-            # Matched skills
-            matched_skills = list(candidate_skills & (required_set | nice_set))
+                    if total_nice > 0:
+                        skill_score_nice = matched_nice / total_nice
+                    else:
+                        skill_score_nice = 0.0
 
-            # Confidence level
-            if composite >= 0.8:
-                confidence = "High"
-            elif composite >= 0.6:
-                confidence = "Medium"
-            else:
-                confidence = "Low"
+                    # Weighted skill score (80% required, 20% nice-to-have)
+                    skill_score = (skill_score_req * 0.8) + (skill_score_nice * 0.2)
 
-            results.append(CandidateMatch(
-                candidate_id=row["id"],
-                name=row["name"] or "Unknown",
-                email=row["email"],
-                composite_score=round(composite, 4),
-                semantic_similarity=round(semantic_sim, 4),
-                skill_match_score=round(skill_score, 4),
-                missing_skills=missing_skills,
-                matched_skills=matched_skills,
-                confidence=confidence
-            ))
+                    # Composite score (weighted average)
+                    # Handle NaN/inf values
+                    if not (0 <= semantic_sim <= 1):
+                        semantic_sim = 0.0
+                    if not (0 <= skill_score <= 1):
+                        skill_score = 0.0
 
-        # Sort by composite score
-        results.sort(key=lambda c: c.composite_score, reverse=True)
-        return results
+                    composite = (semantic_sim * 0.6) + (skill_score * 0.4)
 
-    finally:
-        await conn.close()
+                    # Ensure valid range
+                    composite = max(0.0, min(1.0, composite))
+
+                    # Missing skills
+                    missing_required = required_set - candidate_skills
+                    missing_nice = nice_set - candidate_skills
+                    missing_skills = [
+                        SkillGap(skill_name=s, importance="required") for s in missing_required
+                    ] + [
+                        SkillGap(skill_name=s, importance="nice_to_have") for s in missing_nice
+                    ]
+
+                    # Matched skills
+                    matched_skills = list(candidate_skills & (required_set | nice_set))
+
+                    # Confidence level
+                    if composite >= 0.8:
+                        confidence = "High"
+                    elif composite >= 0.6:
+                        confidence = "Medium"
+                    else:
+                        confidence = "Low"
+
+                    results.append(CandidateMatch(
+                        candidate_id=row["id"],
+                        name=row["name"] or "Unknown",
+                        email=row["email"],
+                        composite_score=round(composite, 4),
+                        semantic_similarity=round(semantic_sim, 4),
+                        skill_match_score=round(skill_score, 4),
+                        missing_skills=missing_skills,
+                        matched_skills=matched_skills,
+                        confidence=confidence
+                    ))
+                except Exception as e:
+                    logger.error(f"Error scoring candidate {row.get('name', 'Unknown')}: {e}")
+                    continue
+
+            # Sort by composite score
+            results.sort(key=lambda c: c.composite_score, reverse=True)
+            logger.info(f"✓ Ranked {len(results)} candidates")
+            return results
+
+        finally:
+            await conn.close()
+
+    except Exception as e:
+        logger.error(f"Match job failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── API Endpoint ──────────────────────────────────────────────────────────────
@@ -190,11 +226,14 @@ async def match_job_to_candidates(req: MatchJobRequest) -> List[CandidateMatch]:
 async def match_job_endpoint(req: MatchJobRequest):
     """Match job description to best candidates."""
     try:
+        logger.info(f"Incoming match request: {req.job_description[:50]}...")
         results = await match_job_to_candidates(req)
-        logger.info(f"Returned {len(results)} candidates")
+        logger.info(f"Returning {len(results)} candidates")
         return results
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Match failed: {e}")
+        logger.error(f"Endpoint failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -205,4 +244,4 @@ async def health_check():
 # ── Run Server ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8005)
+    uvicorn.run(app, host="0.0.0.0", port=8006)
