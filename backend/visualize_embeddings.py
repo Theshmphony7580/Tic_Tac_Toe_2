@@ -121,9 +121,15 @@ def plot_3d(df: pd.DataFrame):
     )
 
     fig.update_traces(
-        marker=dict(size=7, opacity=0.85),
+        marker=dict(
+            size=8,
+            opacity=0.9,
+            line=dict(width=1, color="white")
+        ),
         textposition="top center",
-        textfont=dict(size=9),
+        textfont=dict(size=12, color="white", family="Arial Black"),
+        texttemplate="%{text}",
+        hovertemplate="<b>%{hover_name}</b><br>Category: %{customdata[0]}<br>Parent Category: %{customdata[1]}<extra></extra>",
     )
 
     fig.update_layout(
@@ -131,14 +137,39 @@ def plot_3d(df: pd.DataFrame):
             xaxis_title="UMAP-1",
             yaxis_title="UMAP-2",
             zaxis_title="UMAP-3",
-            bgcolor="rgb(15,15,25)",
-            xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-            yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-            zaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+            bgcolor="black",
+            xaxis=dict(
+                gridcolor="rgba(255, 255, 255, 0.2)",
+                title_font=dict(color="white"),
+                tickfont=dict(color="white"),
+                backgroundcolor="black"
+            ),
+            yaxis=dict(
+                gridcolor="rgba(255, 255, 255, 0.2)",
+                title_font=dict(color="white"),
+                tickfont=dict(color="white"),
+                backgroundcolor="black"
+            ),
+            zaxis=dict(
+                gridcolor="rgba(255, 255, 255, 0.2)",
+                title_font=dict(color="white"),
+                tickfont=dict(color="white"),
+                backgroundcolor="black"
+            ),
         ),
-        paper_bgcolor="rgb(20,20,30)",
+        paper_bgcolor="black",
+        plot_bgcolor="black",
         font_color="white",
         legend_title_text="Category",
+        legend=dict(
+            font=dict(color="white"),
+            bgcolor="black",
+            bordercolor="rgba(255, 255, 255, 0.2)"
+        ),
+        title=dict(
+            font=dict(color="white", size=20),
+            x=0.5
+        ),
         margin=dict(l=0, r=0, t=50, b=0),
     )
 
